@@ -1,0 +1,170 @@
+---
+title: "Final Mason Obegi"
+output: html.document
+date: "2023-12-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+1. Problem setup:
+
+The data we will be choosing is "games.csv", a dataset about online chess games that includes columns of the rating of both players, the number of turns and the overall winner. A higher rating indicates a better player.
+
+The objective of this model is to preidct the outcome of a chess game based on the features of the game. To put it in a statistical question, Can we use statistical modeling to predict the winner of a chess game based on certain features of the game?
+
+```{r}
+set.seed(1)
+data = read.csv("games.csv")
+```
+
+
+2 and 3. Implementation and Depth:
+```{r}
+library(pROC)
+library(MASS)
+
+#make our winner column into an int rather than a string and then make new table
+data$winner.binary = ifelse(data$winner == 'white', 1, 0)
+data = data[, c('turns', 'white_rating', 'black_rating', 'winner.binary')]
+
+#logistic regression model
+model = glm(winner.binary ~ turns + white_rating + black_rating, data = data, family = "binomial")
+pred = predict(model, newdata = data, type = "response")
+
+logistic.roc = roc(data$winner.binary, pred)
+
+print("AUC for logistic regression")
+print(auc(logistic.roc))
+
+#indices for training the qda and lda models
+train.indices = sample(nrow(data), 0.7 * nrow(data))
+train.data = data[train.indices, ]
+test.data = data[-train.indices, ]
+
+
+#lda model 
+model = lda(winner.binary ~ turns + white_rating + black_rating, data = data)
+pred = predict(model, newdata = test.data)$posterior[,2]
+
+lda.roc = roc(test.data$winner.binary, pred)
+
+print("AUC for LDA")
+print(auc(lda.roc))
+
+#qda model 
+model = qda(winner.binary ~ turns + white_rating + black_rating, data = data)
+pred = predict(model, newdata = test.data)$posterior[,2]
+
+qda.roc = roc(test.data$winner.binary, pred)
+
+print("AUC for QDA")
+print(auc(qda.roc))
+
+
+#plot the auc on the same graph
+plot(logistic.roc, col = "blue", main = "AUC Comparison")
+plot(lda.roc, col = "red", add = TRUE)
+plot(qda.roc, col = "green", add = TRUE)
+legend("bottomright", legend = c("Logistic Regression", "LDA", "QDA"), col = c("blue", "red", "green"), lty = 1)
+
+
+
+```
+
+
+```{r}
+#check the classification errors
+
+
+#logistic regression
+model = glm(winner.binary ~ ., data = train.data, family = "binomial")
+pred = predict(model, newdata = test.data, type = "response")
+pred = ifelse(pred > 0.5, 1, 0)
+logistic.error = mean(pred != test.data$winner.binary)
+
+print("Logistic classification error")
+print(logistic.error)
+
+#lda
+lda = lda(winner.binary ~ ., data = train.data)
+pred = predict(lda, newdata = test.data)$class
+lda.error = mean(pred != test.data$winner.binary)
+
+print("LDA classification error")
+print(lda.error)
+
+#qda
+qda = qda(winner.binary ~ ., data = train.data)
+pred = predict(qda, newdata = test.data)$class
+qda.error = mean(pred != test.data$winner.binary)
+
+print("QDA classification error")
+print(qda.error)
+
+```
+
+```{r}
+
+#make variables we will use for all
+folds = 10
+indices = sample(1:folds, nrow(train.data), replace = TRUE)
+
+#logistic regression
+logistic.cv.error = numeric(folds)
+
+for (i in 1:folds) {
+  train = train.data[indices != i, ]
+  test = train.data[indices == i, ]
+  model = glm(winner.binary ~ ., data = train, family = "binomial")
+  pred = ifelse(predict(model, newdata = test, type = "response") > 0.5, 1, 0)
+  logistic.cv.error[i] <- mean(pred != test$winner.binary)
+}
+
+logistic.cv.error = mean(logistic.cv.error)
+
+
+
+#lda
+lda.cv.error = numeric(folds)
+
+for (i in 1:folds) {
+  train = train.data[indices != i, ]
+  test = train.data[indices == i, ]
+  model = lda(winner.binary ~ turns + white_rating + black_rating, data = train)
+  pred = predict(model, newdata = test)$class
+  lda.cv.error[i] <- mean(pred != test$winner.binary)
+}
+
+lda.cv.error = mean(lda.cv.error)
+
+#qda
+qda.cv.error = numeric(folds)
+
+for (i in 1:folds) {
+  train = train.data[indices != i, ]
+  test = train.data[indices == i, ]
+  model = qda(winner.binary ~ turns + white_rating + black_rating, data = train)
+  pred = predict(model, newdata = test)$class
+  qda.cv.error[i] <- mean(pred != test$winner.binary)
+}
+
+qda.cv.error = mean(qda.cv.error)
+
+print("Cross validation error for logistic regression")
+print(logistic.cv.error)
+print("Cross validation error for LDA")
+print(lda.cv.error)
+print("Cross validation error for QDA")
+print(qda.cv.error)
+
+
+
+```
+
+
+4. Conclusion:
+
+In conclusion, between our logistic regression, lda and qda, there is not one model that performs significantly better than another. That being said our logistic regression has the highest area under the cruve on our roc graphs, and it also has the lowest classification error and the lowest cv error. Our LDA model, while extremely close to the QDA area under the curve, classification error and cross validation error, still technically performs better than the QDA model. So overall, in order to predict the winner of a chess game based on the rating of white, the rating of black and the amount of turns in the game, a logisitic regression model is better than both an LDA and QDA model, however, our best model only has an area under the curve of 71, meaning we have an okay model at best.
